@@ -106,36 +106,71 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentEyeMode = 'OD';
     let prismAngle = 0;
 
-    [target, occluder, prism].forEach(tool => {
-        if (!tool) return;
-        tool.addEventListener('mousedown', (e) => {
-            activeTool = tool;
-            offset.x = e.clientX - tool.offsetLeft;
-            offset.y = e.clientY - tool.offsetTop;
-        });
-    });
+    // Helper to get Unified Coordinates (Mouse + Mobile Touch)
+    function getEventPos(e) {
+        if (e.touches && e.touches.length > 0) {
+            return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+        }
+        return { x: e.clientX, y: e.clientY };
+    }
 
-    window.addEventListener('mousemove', (e) => {
+    // Unified Drag Start (Mouse & Mobile Touch)
+    function startDrag(e, tool) {
+        activeTool = tool;
+        const pos = getEventPos(e);
+        const rect = tool.getBoundingClientRect();
+        offset.x = pos.x - rect.left;
+        offset.y = pos.y - rect.top;
+    }
+
+    // Unified Drag Move (Mouse & Mobile Touch)
+    function moveDrag(e) {
         if (!activeTool) return;
 
-        let x = e.clientX - offset.x;
-        let y = e.clientY - offset.y;
+        if (e.type === 'touchmove') e.preventDefault();
 
-        x = Math.max(0, Math.min(540, x));
-        y = Math.max(0, Math.min(230, y));
+        const pos = getEventPos(e);
+        const canvasRect = document.getElementById('canvas').getBoundingClientRect();
+
+        let x = pos.x - canvasRect.left - offset.x;
+        let y = pos.y - canvasRect.top - offset.y;
+
+        x = Math.max(0, Math.min(canvasRect.width - activeTool.offsetWidth, x));
+        y = Math.max(0, Math.min(canvasRect.height - activeTool.offsetHeight, y));
 
         activeTool.style.left = x + 'px';
         activeTool.style.top = y + 'px';
 
         if (isLinked && activeTool === occluder && prism) {
-            prism.style.left = (x + 120) + 'px';
+            prism.style.left = (x + 110) + 'px';
             prism.style.top = y + 'px';
         }
 
         updateEyeMovement();
+    }
+
+    // Drag End
+    function endDrag() {
+        activeTool = null;
+    }
+
+    // Event Listeners for Tools
+    [target, occluder, prism].forEach(tool => {
+        if (!tool) return;
+        
+        // Mouse Events
+        tool.addEventListener('mousedown', (e) => startDrag(e, tool));
+        
+        // Touch Events (Mobile)
+        tool.addEventListener('touchstart', (e) => startDrag(e, tool), { passive: false });
     });
 
-    window.addEventListener('mouseup', () => { activeTool = null; });
+    // Global Listeners for Smooth Movement
+    window.addEventListener('mousemove', moveDrag);
+    window.addEventListener('touchmove', moveDrag, { passive: false });
+
+    window.addEventListener('mouseup', endDrag);
+    window.addEventListener('touchend', endDrag);
 
     if (btnLinkTools) {
         btnLinkTools.onclick = function() {
