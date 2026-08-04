@@ -103,7 +103,7 @@ body {
     color: #94D2BD;
 }
 
-/* Acknowledgement White Box Fix */
+/* Acknowledgement White Box */
 .ack-box {
     background: #ffffff;
     padding: 20px 22px 55px 22px;
@@ -137,7 +137,7 @@ body {
     font-weight: 700;
 }
 
-/* Launch Button Position Fix */
+/* Launch Button */
 .start-btn {
     position: absolute;
     bottom: 14px;
@@ -165,7 +165,7 @@ body {
     font-weight: 500;
 }
 
-/* ================= MODE SELECTION SCREEN FIX ================= */
+/* ================= MODE SELECTION SCREEN ================= */
 .mode-card {
     justify-content: space-between;
 }
@@ -290,7 +290,7 @@ body {
     color: #94D2BD;
 }
 
-/* Clean Canvas & Standalone Eyes */
+/* Canvas & Standalone Eyes */
 .face-canvas {
     position: relative;
     width: 100%;
@@ -356,12 +356,13 @@ body {
     box-shadow: 0 0 8px #ffffff;
 }
 
-/* Draggable Clinical Tools */
+/* Draggable Clinical Tools (With Mobile Touch-Action Fix) */
 .drag-tool {
     position: absolute;
     z-index: 10;
     cursor: grab;
     user-select: none;
+    touch-action: none; /* Prevents mobile scroll while dragging */
 }
 
 .drag-tool:active { cursor: grabbing; }
