@@ -106,15 +106,16 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentEyeMode = 'OD';
     let prismAngle = 0;
 
-    // Helper to get Unified Coordinates (Mouse + Mobile Touch)
+    // Enhanced Drag Coordinates for Mobile Touch
     function getEventPos(e) {
         if (e.touches && e.touches.length > 0) {
             return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+        } else if (e.changedTouches && e.changedTouches.length > 0) {
+            return { x: e.changedTouches[0].clientX, y: e.changedTouches[0].clientY };
         }
         return { x: e.clientX, y: e.clientY };
     }
 
-    // Unified Drag Start (Mouse & Mobile Touch)
     function startDrag(e, tool) {
         activeTool = tool;
         const pos = getEventPos(e);
@@ -123,11 +124,13 @@ document.addEventListener('DOMContentLoaded', () => {
         offset.y = pos.y - rect.top;
     }
 
-    // Unified Drag Move (Mouse & Mobile Touch)
     function moveDrag(e) {
         if (!activeTool) return;
 
-        if (e.type === 'touchmove') e.preventDefault();
+        // Prevent page scroll during touch drag
+        if (e.type === 'touchmove') {
+            e.preventDefault();
+        }
 
         const pos = getEventPos(e);
         const canvasRect = document.getElementById('canvas').getBoundingClientRect();
