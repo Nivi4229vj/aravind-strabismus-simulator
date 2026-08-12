@@ -1,341 +1,463 @@
 document.addEventListener('DOMContentLoaded', () => {
 
-    // Screen Management
+    // ================= STATE MANAGEMENT =================
+    const state = {
+        mode: 'explore', // 'explore' or 'test'
+        fixingEye: 'OD',  // 'OD' (Right) or 'OS' (Left)
+        tropiaH: 0,
+        tropiaV: 0,
+        phoriaH: 0,
+        phoriaV: 0,
+        penlightActive: false,
+        linkedTools: false,
+        prismPower: 20,
+        prismBase: 'BI', // 'BI', 'BO', 'BU', 'BD'
+        
+        // Test Mode States
+        currentPatientIndex: 0,
+        patients: [],
+        
+        // Tool Drag Positions & Positions relative to eyes
+        occluderOverOD: false,
+        occluderOverOS: false,
+        prismOverOD: false,
+        prismOverOS: false,
+        
+        // Tutorial State
+        tutorialStep: 0
+    };
+
+    // ================= DOM ELEMENTS =================
+    // Screens
     const startScreen = document.getElementById('startScreen');
     const modeScreen = document.getElementById('modeScreen');
     const simulatorScreen = document.getElementById('simulatorScreen');
 
+    // Buttons Navigation
     const btnStartApp = document.getElementById('btnStartApp');
     const btnChooseExplore = document.getElementById('btnChooseExplore');
     const btnChooseTest = document.getElementById('btnChooseTest');
     const btnHome = document.getElementById('btnHome');
     const btnHelp = document.getElementById('btnHelp');
-
-    const instructionModal = document.getElementById('instructionModal');
-    const btnCloseModal = document.getElementById('btnCloseModal');
-    const btnStartSimulatorFromModal = document.getElementById('btnStartSimulatorFromModal');
-    const btnShowAckModal = document.getElementById('btnShowAckModal');
-
     const modeIndicatorLabel = document.getElementById('modeIndicatorLabel');
-    const exploreControls = document.getElementById('exploreControls');
-    const testControls = document.getElementById('testControls');
 
-    let currentMode = 'EXPLORE';
-
-    function switchScreen(targetScreen) {
-        if (!targetScreen) return;
-        [startScreen, modeScreen, simulatorScreen].forEach(s => {
-            if (s) s.classList.remove('active');
-        });
-        targetScreen.classList.add('active');
-    }
-
-    if (btnStartApp) {
-        btnStartApp.onclick = function() { switchScreen(modeScreen); };
-    }
-
-    if (btnChooseExplore) {
-        btnChooseExplore.onclick = function() {
-            currentMode = 'EXPLORE';
-            if (modeIndicatorLabel) modeIndicatorLabel.innerText = 'Clinical Exploration';
-            if (exploreControls) exploreControls.classList.remove('hidden');
-            if (testControls) testControls.classList.add('hidden');
-            switchScreen(simulatorScreen);
-            if (instructionModal) instructionModal.classList.remove('hidden');
-        };
-    }
-
-    if (btnChooseTest) {
-        btnChooseTest.onclick = function() {
-            currentMode = 'TEST';
-            if (modeIndicatorLabel) modeIndicatorLabel.innerText = 'Patient Assessment';
-            if (exploreControls) exploreControls.classList.add('hidden');
-            if (testControls) testControls.classList.remove('hidden');
-            switchScreen(simulatorScreen);
-            if (instructionModal) instructionModal.classList.remove('hidden');
-            initTestCases();
-        };
-    }
-
-    if (btnStartSimulatorFromModal) {
-        btnStartSimulatorFromModal.onclick = function() {
-            if (instructionModal) instructionModal.classList.add('hidden');
-            if (currentMode === 'EXPLORE') startTutorial();
-        };
-    }
-
-    if (btnCloseModal) {
-        btnCloseModal.onclick = function() {
-            if (instructionModal) instructionModal.classList.add('hidden');
-        };
-    }
-
-    if (btnHome) btnHome.onclick = function() { switchScreen(modeScreen); };
-    if (btnHelp) btnHelp.onclick = function() { if (instructionModal) instructionModal.classList.remove('hidden'); };
-    if (btnShowAckModal) btnShowAckModal.onclick = function() { switchScreen(startScreen); };
-
-    // Simulation Engine & Tools
-    const target = document.getElementById('fixationTarget');
-    const occluder = document.getElementById('occluderPaddle');
-    const prism = document.getElementById('prismGlass');
-
+    // Eyes Elements
+    const socketOD = document.getElementById('socketOD');
+    const socketOS = document.getElementById('socketOS');
     const irisOD = document.getElementById('irisOD');
     const irisOS = document.getElementById('irisOS');
     const reflexOD = document.getElementById('reflexOD');
     const reflexOS = document.getElementById('reflexOS');
 
-    const tropiaH = document.getElementById('tropiaH');
-    const tropiaV = document.getElementById('tropiaV');
-    const phoriaH = document.getElementById('phoriaH');
-    const phoriaV = document.getElementById('phoriaV');
+    // Draggable Tools
+    const canvas = document.getElementById('canvas');
+    const fixationTarget = document.getElementById('fixationTarget');
+    const occluderPaddle = document.getElementById('occluderPaddle');
+    const prismGlass = document.getElementById('prismGlass');
 
+    // Explore Controls
     const btnOD = document.getElementById('btnOD');
+    const exploreControls = document.getElementById('exploreControls');
+    const inputTropiaH = document.getElementById('tropiaH');
+    const inputTropiaV = document.getElementById('tropiaV');
+    const inputPhoriaH = document.getElementById('phoriaH');
+    const inputPhoriaV = document.getElementById('phoriaV');
+
+    // Action Controls
     const btnPenlight = document.getElementById('btnPenlight');
     const btnLinkTools = document.getElementById('btnLinkTools');
+    const inputPrismPower = document.getElementById('prismPower');
     const btnRotatePrism = document.getElementById('btnRotatePrism');
-    const prismPower = document.getElementById('prismPower');
 
-    // Standalone Eye Coordinates
-    const OD_CENTER = { x: 235, y: 135 };
-    const OS_CENTER = { x: 440, y: 135 };
-
-    let isLightOn = false;
-    let isLinked = false;
-    let activeTool = null;
-    let offset = { x: 0, y: 0 };
-    let currentEyeMode = 'OD';
-    let prismAngle = 0;
-
-    // Enhanced Drag Coordinates for Mobile Touch
-    function getEventPos(e) {
-        if (e.touches && e.touches.length > 0) {
-            return { x: e.touches[0].clientX, y: e.touches[0].clientY };
-        } else if (e.changedTouches && e.changedTouches.length > 0) {
-            return { x: e.changedTouches[0].clientX, y: e.changedTouches[0].clientY };
-        }
-        return { x: e.clientX, y: e.clientY };
-    }
-
-    function startDrag(e, tool) {
-        activeTool = tool;
-        const pos = getEventPos(e);
-        const rect = tool.getBoundingClientRect();
-        offset.x = pos.x - rect.left;
-        offset.y = pos.y - rect.top;
-    }
-
-    function moveDrag(e) {
-        if (!activeTool) return;
-
-        // Prevent page scroll during touch drag
-        if (e.type === 'touchmove') {
-            e.preventDefault();
-        }
-
-        const pos = getEventPos(e);
-        const canvasRect = document.getElementById('canvas').getBoundingClientRect();
-
-        let x = pos.x - canvasRect.left - offset.x;
-        let y = pos.y - canvasRect.top - offset.y;
-
-        x = Math.max(0, Math.min(canvasRect.width - activeTool.offsetWidth, x));
-        y = Math.max(0, Math.min(canvasRect.height - activeTool.offsetHeight, y));
-
-        activeTool.style.left = x + 'px';
-        activeTool.style.top = y + 'px';
-
-        if (isLinked && activeTool === occluder && prism) {
-            prism.style.left = (x + 110) + 'px';
-            prism.style.top = y + 'px';
-        }
-
-        updateEyeMovement();
-    }
-
-    // Drag End
-    function endDrag() {
-        activeTool = null;
-    }
-
-    // Event Listeners for Tools
-    [target, occluder, prism].forEach(tool => {
-        if (!tool) return;
-        
-        // Mouse Events
-        tool.addEventListener('mousedown', (e) => startDrag(e, tool));
-        
-        // Touch Events (Mobile)
-        tool.addEventListener('touchstart', (e) => startDrag(e, tool), { passive: false });
-    });
-
-    // Global Listeners for Smooth Movement
-    window.addEventListener('mousemove', moveDrag);
-    window.addEventListener('touchmove', moveDrag, { passive: false });
-
-    window.addEventListener('mouseup', endDrag);
-    window.addEventListener('touchend', endDrag);
-
-    if (btnLinkTools) {
-        btnLinkTools.onclick = function() {
-            isLinked = !isLinked;
-            btnLinkTools.classList.toggle('active', isLinked);
-        };
-    }
-
-    if (btnRotatePrism && prism) {
-        btnRotatePrism.onclick = function() {
-            prismAngle = (prismAngle + 90) % 360;
-            prism.style.transform = `rotate(${prismAngle}deg)`;
-        };
-    }
-
-    if (btnPenlight && reflexOD && reflexOS) {
-        btnPenlight.onclick = function() {
-            isLightOn = !isLightOn;
-            btnPenlight.classList.toggle('active', isLightOn);
-            reflexOD.classList.toggle('hidden', !isLightOn);
-            reflexOS.classList.toggle('hidden', !isLightOn);
-        };
-    }
-
-    if (btnOD) {
-        btnOD.onclick = function() {
-            currentEyeMode = currentEyeMode === 'OD' ? 'OS' : 'OD';
-            btnOD.innerText = `Fixing Eye: ${currentEyeMode}`;
-            updateEyeMovement();
-        };
-    }
-
-    function updateEyeMovement() {
-        if (!target || !occluder || !prism || !irisOD || !irisOS) return;
-
-        const tX = target.offsetLeft + 13;
-        const tY = target.offsetTop + 13;
-
-        const occX = occluder.offsetLeft + 47;
-        const occY = occluder.offsetTop + 47;
-
-        const pX = prism.offsetLeft + 47;
-        const pY = prism.offsetTop + 47;
-
-        const isODCovered = Math.hypot(occX - OD_CENTER.x, occY - OD_CENTER.y) < 65;
-        const isOSCovered = Math.hypot(occX - OS_CENTER.x, occY - OS_CENTER.y) < 65;
-
-        const isODPrism = Math.hypot(pX - OD_CENTER.x, pY - OD_CENTER.y) < 65;
-        const isOSPrism = Math.hypot(pX - OS_CENTER.x, pY - OS_CENTER.y) < 65;
-
-        let odX = (tX - OD_CENTER.x) * 0.1;
-        let odY = (tY - OD_CENTER.y) * 0.1;
-        let osX = (tX - OS_CENTER.x) * 0.1;
-        let osY = (tY - OS_CENTER.y) * 0.1;
-
-        let curTropH = 0, curTropV = 0, curPhorH = 0, curPhorV = 0;
-
-        if (currentMode === 'EXPLORE') {
-            curTropH = parseFloat(tropiaH ? tropiaH.value : 0) || 0;
-            curTropV = parseFloat(tropiaV ? tropiaV.value : 0) || 0;
-            curPhorH = parseFloat(phoriaH ? phoriaH.value : 0) || 0;
-            curPhorV = parseFloat(phoriaV ? phoriaV.value : 0) || 0;
-        } else {
-            curTropH = activePatientCase.tropH;
-            curTropV = activePatientCase.tropV;
-            curPhorH = activePatientCase.phorH;
-            curPhorV = activePatientCase.phorV;
-        }
-
-        if (currentEyeMode === 'OD') {
-            osX += curTropH * 0.5;
-            osY += curTropV * 0.5;
-        } else {
-            odX += curTropH * 0.5;
-            odY += curTropV * 0.5;
-        }
-
-        if (isODCovered) { odX += curPhorH * 0.5; odY += curPhorV * 0.5; }
-        if (isOSCovered) { osX += curPhorH * 0.5; osY += curPhorV * 0.5; }
-
-        const pPow = parseFloat(prismPower ? prismPower.value : 0) || 0;
-        if (isODPrism) odX -= pPow * 0.4;
-        if (isOSPrism) osX -= pPow * 0.4;
-
-        odX = Math.max(-22, Math.min(22, odX));
-        odY = Math.max(-12, Math.min(12, odY));
-        osX = Math.max(-22, Math.min(22, osX));
-        osY = Math.max(-12, Math.min(12, osY));
-
-        irisOD.style.transform = `translate(${odX}px, ${odY}px)`;
-        irisOS.style.transform = `translate(${osX}px, ${osY}px)`;
-    }
-
-    [tropiaH, tropiaV, phoriaH, phoriaV, prismPower].forEach(inp => {
-        if (inp) inp.addEventListener('input', updateEyeMovement);
-    });
-
-    // Test Mode Logic
-    let currentPatientIdx = 0;
-    let activePatientCase = { tropH: 0, tropV: 0, phorH: 0, phorV: 0 };
-
-    const patientCases = [
-        { tropH: 20, tropV: 0, phorH: 0, phorV: 0 },
-        { tropH: -15, tropV: 0, phorH: 0, phorV: 0 },
-        { tropH: 0, tropV: 0, phorH: 25, phorV: 0 }
-    ];
-
-    function initTestCases() {
-        currentPatientIdx = 0;
-        loadPatientCase(currentPatientIdx);
-    }
-
-    function loadPatientCase(idx) {
-        const counter = document.getElementById('patientCounter');
-        if (counter) counter.innerText = `Patient ${idx + 1} of ${patientCases.length}`;
-        activePatientCase = patientCases[idx];
-        updateEyeMovement();
-    }
+    // Test Mode Controls (Updated DOM Elements for Dual-Row Structure)
+    const testControls = document.getElementById('testControls');
+    const ansLeftMag = document.getElementById('ansLeftMag');
+    const ansLeftEye = document.getElementById('ansLeftEye');
+    const ansLeftCond = document.getElementById('ansLeftCond');
+    
+    const ansRightMag = document.getElementById('ansRightMag');
+    const ansRightEye = document.getElementById('ansRightEye');
+    const ansRightCond = document.getElementById('ansRightCond');
 
     const btnSubmitTest = document.getElementById('btnSubmitTest');
-    if (btnSubmitTest) {
-        btnSubmitTest.onclick = function() {
-            alert("Diagnosis Submitted to Aravind Assessment Log!");
-            if (currentPatientIdx < patientCases.length - 1) {
-                currentPatientIdx++;
-                loadPatientCase(currentPatientIdx);
+    const patientCounter = document.getElementById('patientCounter');
+
+    // Modals & Tutorials
+    const btnShowAckModal = document.getElementById('btnShowAckModal');
+    const instructionModal = document.getElementById('instructionModal');
+    const btnCloseModal = document.getElementById('btnCloseModal');
+    const btnStartSimulatorFromModal = document.getElementById('btnStartSimulatorFromModal');
+
+    // ================= INITIALIZATION & NAVIGATION =================
+    let cameFromModeScreen = false;
+
+    btnStartApp.addEventListener('click', () => {
+        if (cameFromModeScreen) {
+            switchScreen(modeScreen);
+            cameFromModeScreen = false;
+        } else {
+            switchScreen(modeScreen);
+        }
+    });
+
+    btnChooseExplore.addEventListener('click', () => {
+        state.mode = 'explore';
+        modeIndicatorLabel.textContent = 'Clinical Exploration';
+        exploreControls.classList.remove('hidden');
+        testControls.classList.add('hidden');
+        switchScreen(simulatorScreen);
+        resetSimulation();
+    });
+
+    btnChooseTest.addEventListener('click', () => {
+        state.mode = 'test';
+        modeIndicatorLabel.textContent = 'Patient Assessment (Test)';
+        exploreControls.classList.add('hidden');
+        testControls.classList.remove('hidden');
+        setupTestCases();
+        switchScreen(simulatorScreen);
+        resetSimulation();
+    });
+
+    btnHome.addEventListener('click', () => {
+        switchScreen(modeScreen);
+    });
+
+    btnHelp.addEventListener('click', () => {
+        instructionModal.classList.remove('hidden');
+    });
+
+    btnCloseModal.addEventListener('click', () => {
+        instructionModal.classList.add('hidden');
+    });
+
+    if (btnShowAckModal) {
+        btnShowAckModal.addEventListener('click', () => {
+            cameFromModeScreen = true;
+            switchScreen(startScreen);
+        });
+    }
+
+    btnStartSimulatorFromModal.addEventListener('click', () => {
+        instructionModal.classList.add('hidden');
+        if (simulatorScreen.classList.contains('active')) return;
+        switchScreen(modeScreen);
+    });
+
+    function switchScreen(targetScreen) {
+        [startScreen, modeScreen, simulatorScreen].forEach(scr => scr.classList.remove('active'));
+        targetScreen.classList.add('active');
+    }
+
+    // ================= DRAG AND DROP ENGINE (UNRESTRICTED FULL SCREEN) =================
+    makeDraggable(fixationTarget);
+    makeDraggable(occluderPaddle);
+    makeDraggable(prismGlass);
+
+    function makeDraggable(element) {
+        let lastX = 0, lastY = 0;
+        let dragging = false;
+
+        // Pointer Events work consistently with mouse, touch and pen.
+        element.addEventListener('pointerdown', (e) => {
+            if (e.button !== undefined && e.button !== 0) return;
+            e.preventDefault();
+            dragging = true;
+            lastX = e.clientX;
+            lastY = e.clientY;
+            element.setPointerCapture?.(e.pointerId);
+        });
+
+        element.addEventListener('pointermove', (e) => {
+            if (!dragging) return;
+            e.preventDefault();
+
+            const dx = lastX - e.clientX;
+            const dy = lastY - e.clientY;
+            lastX = e.clientX;
+            lastY = e.clientY;
+
+            moveElement(element, dx, dy);
+        });
+
+        element.addEventListener('pointerup', endDrag);
+        element.addEventListener('pointercancel', endDrag);
+        element.addEventListener('lostpointercapture', endDrag);
+
+        function endDrag() {
+            dragging = false;
+        }
+
+        function moveElement(el, dx, dy) {
+            let newTop = el.offsetTop - dy;
+            let newLeft = el.offsetLeft - dx;
+
+            el.style.top = newTop + "px";
+            el.style.left = newLeft + "px";
+
+            if (state.linkedTools && el === occluderPaddle) {
+                let prismLeft = newLeft + 70;
+                prismGlass.style.top = newTop + "px";
+                prismGlass.style.left = prismLeft + "px";
+            }
+
+            checkToolOverlay();
+            updateEyePositions();
+        }
+    }
+
+    // ================= TOOL DETECTION (OVERLAYING EYES) =================
+    function checkToolOverlay() {
+        const rectOD = socketOD.getBoundingClientRect();
+        const rectOS = socketOS.getBoundingClientRect();
+        const rectOcc = occluderPaddle.getBoundingClientRect();
+        const rectPrism = prismGlass.getBoundingClientRect();
+
+        state.occluderOverOD = isOverlapping(rectOcc, rectOD);
+        state.occluderOverOS = isOverlapping(rectOcc, rectOS);
+        state.prismOverOD = isOverlapping(rectPrism, rectOD);
+        state.prismOverOS = isOverlapping(rectPrism, rectOS);
+    }
+
+    function isOverlapping(r1, r2) {
+        return !(r1.right < r2.left || 
+                 r1.left > r2.right || 
+                 r1.bottom < r2.top || 
+                 r1.top > r2.bottom);
+    }
+
+    // ================= SMOOTH EYE TRACKING ENGINE =================
+    function calculateEyeOffset(socketEl, targetRect) {
+        const socketRect = socketEl.getBoundingClientRect();
+        
+        // Center position of socket
+        const eyeCenterX = socketRect.left + socketRect.width / 2;
+        const eyeCenterY = socketRect.top + socketRect.height / 2;
+
+        // Center position of fixation target
+        const targetCenterX = targetRect.left + targetRect.width / 2;
+        const targetCenterY = targetRect.top + targetRect.height / 2;
+
+        // Distance Vector
+        const deltaX = targetCenterX - eyeCenterX;
+        const deltaY = targetCenterY - eyeCenterY;
+
+        // Angle and distance calculation
+        const angle = Math.atan2(deltaY, deltaX);
+        const distance = Math.hypot(deltaX, deltaY);
+
+        // Dynamic orbital movement range
+        const maxRadius = 32; 
+        const movementMagnitude = Math.min(distance * 0.1, maxRadius);
+
+        const shiftX = Math.cos(angle) * movementMagnitude;
+        const shiftY = Math.sin(angle) * movementMagnitude;
+
+        return { shiftX, shiftY, eyeCenterX, eyeCenterY };
+    }
+
+    function updateEyePositions() {
+        const targetRect = fixationTarget.getBoundingClientRect();
+
+        let posOD = calculateEyeOffset(socketOD, targetRect);
+        let posOS = calculateEyeOffset(socketOS, targetRect);
+
+        // Natural Convergence
+        const midEyeX = (posOD.eyeCenterX + posOS.eyeCenterX) / 2;
+        const midEyeY = (posOD.eyeCenterY + posOS.eyeCenterY) / 2;
+        const targetCenterX = targetRect.left + targetRect.width / 2;
+        const targetCenterY = targetRect.top + targetRect.height / 2;
+
+        const distToCenter = Math.hypot(targetCenterX - midEyeX, targetCenterY - midEyeY);
+
+        if (distToCenter < 250) {
+            const convergenceFactor = (250 - distToCenter) * 0.05;
+            posOD.shiftX += convergenceFactor; // Right Eye moves Inward
+            posOS.shiftX -= convergenceFactor; // Left Eye moves Inward
+        }
+
+        // Apply Strabismus deviations (Tropia & Phoria)
+        let tH = state.tropiaH * 0.4;
+        let tV = state.tropiaV * 0.4;
+        let pH = state.phoriaH * 0.4;
+        let pV = state.phoriaV * 0.4;
+
+        // Prism Neutralization Logic
+        let prismPowerEffect = state.prismPower * 0.3;
+        let prismX = 0, prismY = 0;
+
+        if (state.prismBase === 'BI') prismX = -prismPowerEffect;
+        if (state.prismBase === 'BO') prismX = prismPowerEffect;
+        if (state.prismBase === 'BU') prismY = -prismPowerEffect;
+        if (state.prismBase === 'BD') prismY = prismPowerEffect;
+
+        // Final Shift Variables initialized with Target Offset
+        let finalOD_X = posOD.shiftX;
+        let finalOD_Y = posOD.shiftY;
+        let finalOS_X = posOS.shiftX;
+        let finalOS_Y = posOS.shiftY;
+
+        // OD (Right Eye) Logic
+        if (state.occluderOverOD) {
+            finalOD_X += pH + tH;
+            finalOD_Y += pV + tV;
+        } else if (!state.occluderOverOS && state.fixingEye === 'OS') {
+            finalOD_X += tH;
+            finalOD_Y += tV;
+        }
+
+        if (state.prismOverOD) {
+            finalOD_X += prismX;
+            finalOD_Y += prismY;
+        }
+
+        // OS (Left Eye) Logic
+        if (state.occluderOverOS) {
+            finalOS_X += pH + tH;
+            finalOS_Y += pV + tV;
+        } else if (!state.occluderOverOD && state.fixingEye === 'OD') {
+            finalOS_X += tH;
+            finalOS_Y += tV;
+        }
+
+        if (state.prismOverOS) {
+            finalOS_X += prismX;
+            finalOS_Y += prismY;
+        }
+
+        // 2D Translation Application (இடது/வலது மற்றும் மேல்/கீழ் இயக்கம் துல்லியமாக வேலை செய்யும்)
+        irisOD.style.transform = `translate(${finalOD_X}px, ${finalOD_Y}px)`;
+        irisOS.style.transform = `translate(${finalOS_X}px, ${finalOS_Y}px)`;
+    }
+
+    // ================= EVENT LISTENERS FOR CONTROLS =================
+    btnOD.addEventListener('click', () => {
+        state.fixingEye = state.fixingEye === 'OD' ? 'OS' : 'OD';
+        btnOD.textContent = `Fixing Eye: ${state.fixingEye}`;
+        updateEyePositions();
+    });
+
+    // Inputs for Explore Mode
+    [inputTropiaH, inputTropiaV, inputPhoriaH, inputPhoriaV].forEach(input => {
+        if(input) {
+            input.addEventListener('input', () => {
+                state.tropiaH = parseFloat(inputTropiaH.value) || 0;
+                state.tropiaV = parseFloat(inputTropiaV.value) || 0;
+                state.phoriaH = parseFloat(inputPhoriaH.value) || 0;
+                state.phoriaV = parseFloat(inputPhoriaV.value) || 0;
+                updateEyePositions();
+            });
+        }
+    });
+
+    // Penlight Toggle
+    btnPenlight.addEventListener('click', () => {
+        state.penlightActive = !state.penlightActive;
+        btnPenlight.classList.toggle('active', state.penlightActive);
+        reflexOD.classList.toggle('hidden', !state.penlightActive);
+        reflexOS.classList.toggle('hidden', !state.penlightActive);
+    });
+
+    // Link Tools Toggle
+    btnLinkTools.addEventListener('click', () => {
+        state.linkedTools = !state.linkedTools;
+        btnLinkTools.classList.toggle('active', state.linkedTools);
+    });
+
+    // Prism Controls
+    inputPrismPower.addEventListener('input', () => {
+        state.prismPower = parseFloat(inputPrismPower.value) || 0;
+        updateEyePositions();
+    });
+
+    const bases = ['BI', 'BO', 'BU', 'BD'];
+    btnRotatePrism.addEventListener('click', () => {
+        let currentIndex = bases.indexOf(state.prismBase);
+        state.prismBase = bases[(currentIndex + 1) % bases.length];
+        btnRotatePrism.textContent = `🔄 ${state.prismBase}`;
+        btnRotatePrism.title = `Base: ${state.prismBase}`;
+        updateEyePositions();
+    });
+
+    // ================= PATIENT TEST MODE LOGIC =================
+    function setupTestCases() {
+        state.patients = [
+            { id: 1, tropiaH: 20, tropiaV: 0, phoriaH: 0, phoriaV: 0, affectedEye: 'Left', cond: 'Exotropia' },
+            { id: 2, tropiaH: -15, tropiaV: 0, phoriaH: 0, phoriaV: 0, affectedEye: 'Right', cond: 'Esotropia' },
+            { id: 3, tropiaH: 0, tropiaV: 0, phoriaH: -25, phoriaV: 0, affectedEye: 'Left', cond: 'Esophoria' }
+        ];
+        state.currentPatientIndex = 0;
+        loadPatientCase();
+    }
+
+    function loadPatientCase() {
+        const p = state.patients[state.currentPatientIndex];
+        patientCounter.textContent = `${state.currentPatientIndex + 1} of ${state.patients.length}`;
+        state.tropiaH = p.tropiaH;
+        state.tropiaV = p.tropiaV;
+        state.phoriaH = p.phoriaH;
+        state.phoriaV = p.phoriaV;
+
+        // Reset Inputs
+        if (ansLeftMag) ansLeftMag.value = 0;
+        if (ansLeftCond) ansLeftCond.value = 'None';
+        if (ansRightMag) ansRightMag.value = 0;
+        if (ansRightCond) ansRightCond.value = 'None';
+
+        updateEyePositions();
+    }
+
+    btnSubmitTest.addEventListener('click', () => {
+        const p = state.patients[state.currentPatientIndex];
+        const expectedMag = Math.abs(p.tropiaH || p.phoriaH);
+
+        // Evaluate input based on affected eye
+        let userMag = 0;
+        let userCond = 'None';
+
+        if (p.affectedEye === 'Left') {
+            userMag = parseFloat(ansLeftMag.value) || 0;
+            userCond = ansLeftCond.value;
+        } else if (p.affectedEye === 'Right') {
+            userMag = parseFloat(ansRightMag.value) || 0;
+            userCond = ansRightCond.value;
+        }
+
+        if (Math.abs(userMag - expectedMag) <= 3 && userCond === p.cond) {
+            alert("✓ Correct Diagnosis! Great Clinical Judgement.");
+            if (state.currentPatientIndex < state.patients.length - 1) {
+                state.currentPatientIndex++;
+                loadPatientCase();
             } else {
-                alert("All Patient Cases Evaluated Successfully!");
+                alert("🎉 Congratulations! You have completed all Aravind Patient Assessment cases.");
                 switchScreen(modeScreen);
             }
-        };
-    }
+        } else {
+            alert("❌ Incorrect Diagnosis. Re-examine using Cover-Uncover & Prism tests.");
+        }
+    });
 
-    // Guided Tutorial Engine
-    const tutorialOverlay = document.getElementById('tutorialOverlay');
-    const tutorialText = document.getElementById('tutorialText');
-    const btnTutorialNext = document.getElementById('btnTutorialNext');
+    // ================= HELPER RESET FUNCTION =================
+    function resetSimulation() {
+        fixationTarget.style.top = "20px";
+        fixationTarget.style.left = "20px";
+        occluderPaddle.style.top = "20px";
+        occluderPaddle.style.left = "90px";
+        prismGlass.style.top = "20px";
+        prismGlass.style.left = "180px";
 
-    const tutorialSteps = [
-        "Welcome to Aravind Simulator! Set prism diopter deviations using Tropia/Phoria inputs.",
-        "Select fixing eye (OD / OS) to observe primary and secondary deviation shifts.",
-        "Drag the Occluder Paddle or Prism Glass over either eye to conduct cover testing.",
-        "Use the Penlight tool (🔦) for Hirschberg corneal light reflex testing."
-    ];
+        if (state.mode === 'explore') {
+            inputTropiaH.value = 0;
+            inputTropiaV.value = 0;
+            inputPhoriaH.value = 0;
+            inputPhoriaV.value = 0;
+            state.tropiaH = 0;
+            state.tropiaV = 0;
+            state.phoriaH = 0;
+            state.phoriaV = 0;
+        }
 
-    let currentTutorialStep = 0;
-
-    function startTutorial() {
-        currentTutorialStep = 0;
-        if (tutorialOverlay) tutorialOverlay.classList.remove('hidden');
-        if (tutorialText) tutorialText.innerText = tutorialSteps[0];
-    }
-
-    if (btnTutorialNext) {
-        btnTutorialNext.onclick = function() {
-            currentTutorialStep++;
-            if (currentTutorialStep < tutorialSteps.length) {
-                if (tutorialText) tutorialText.innerText = tutorialSteps[currentTutorialStep];
-            } else {
-                if (tutorialOverlay) tutorialOverlay.classList.add('hidden');
-            }
-        };
+        updateEyePositions();
     }
 
 });
